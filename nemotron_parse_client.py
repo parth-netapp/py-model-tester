@@ -1,8 +1,9 @@
 import asyncio
 import base64
 import json
+import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 import aiohttp
 
@@ -78,14 +79,15 @@ async def call_nemotron_parse(
     model: str = "nvidia/nemotron-parse",
     url: str = MODEL_URL,
     timeout: int = 60,
-) -> dict:
+) -> Tuple[dict, float]:
     """Call the Nemotron-parse model for a single page image (async).
 
         The raw JSON response is also written to disk in the same
         directory as the page image, using the same basename with a
         .json extension.
 
-    Returns the parsed JSON response from the model.
+    Returns:
+        Tuple of (parsed JSON response, latency in seconds)
     """
     logger.info(
         f"Calling Nemotron-parse | image={image_path} | model={model} | url={url}"
@@ -96,11 +98,16 @@ async def call_nemotron_parse(
 
     # Use aiohttp for async HTTP requests
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
+    start_time = time.time()
     async with aiohttp.ClientSession(timeout=timeout_obj) as session:
         async with session.post(url, headers=headers, json=payload) as response:
             logger.info(f"Nemotron-parse HTTP response | status={response.status}")
             response.raise_for_status()
             response_json = await response.json()
+
+    # Calculate API latency (excluding post-processing)
+    latency = time.time() - start_time
+    logger.info(f"Nemotron-parse API latency: {latency:.3f}s")
 
     # Persist the model response to disk next to the image (async)
     out_path = _build_response_path(image_path=image_path)
@@ -113,4 +120,4 @@ async def call_nemotron_parse(
 
     logger.info(f"Saved Nemotron-parse response JSON | path={out_path}")
 
-    return response_json
+    return response_json, latency

@@ -15,6 +15,7 @@ Example: uv run ./pdf_processor.py ./page13.pdf ./pdf_images_dir/
 import subprocess
 import sys
 import os
+import time
 import argparse
 from pathlib import Path
 from typing import Union
@@ -136,6 +137,9 @@ def pdf_to_png(
         f"Starting PDF to PNG conversion | path={pdf_path} | dpi={dpi} | batch_size={batch_size}"
     )
 
+    # Track total command execution time across all batches
+    conversion_time = 0.0
+
     try:
         for start_page in range(1, total_pages + 1, batch_size):
             end_page = min(start_page + batch_size - 1, total_pages)
@@ -157,12 +161,16 @@ def pdf_to_png(
                 f"Running pdftocairo | path={pdf_path} | pages={start_page}-{end_page}"
             )
 
+            # Time only the subprocess execution
+            batch_start = time.time()
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
                 check=True,
             )
+            batch_time = time.time() - batch_start
+            conversion_time += batch_time
 
             combined_stdout += result.stdout
             combined_stderr += result.stderr
@@ -175,7 +183,7 @@ def pdf_to_png(
             final_files = sorted(images_dir.glob(f"{internal_prefix}.png"))
 
         logger.info(
-            f"Completed PDF to PNG conversion | path={pdf_path} | images={len(final_files)}"
+            f"Completed PDF to PNG conversion | path={pdf_path} | images={len(final_files)} | time={conversion_time:.3f}s"
         )
 
         return {
@@ -184,6 +192,8 @@ def pdf_to_png(
             "output_files": [str(f) for f in final_files],
             "stdout": combined_stdout,
             "stderr": combined_stderr,
+            "conversion_time_seconds": conversion_time,
+            "total_pages": total_pages,
         }
 
     except subprocess.CalledProcessError as e:

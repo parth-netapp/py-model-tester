@@ -9,6 +9,7 @@ This script processes PDF files through a multi-stage pipeline:
 
 Usage:
 	uv run python3 main.py ./page13.pdf 
+	uv run main.py ./inPDFs/
     python main.py <pdf-file-or-directory>
     make run ARGS=<pdf-file-or-directory>
 
@@ -20,7 +21,7 @@ Examples:
 
 import asyncio
 import json
-
+import shutil
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ from pdf_processor import pdf_to_png
 from image_cropper import crop_from_model_response
 from nemotron_parse_client import call_nemotron_parse, MAX_CONCURRENT_API_CALLS
 from logging_config import get_logger
+from metrics_collector import MetricsCollector
 
 
 logger = get_logger(__name__)
@@ -45,23 +47,28 @@ def get_pdf_paths(input_path: str) -> list[Path]:
 	raise FileNotFoundError(f"No PDF file(s) found at: {input_path}")
 
 
-async def process_page_image(image_path: str, semaphore: asyncio.Semaphore) -> list[str]:
+async def process_page_image(
+	image_path: str, 
+	semaphore: asyncio.Semaphore, 
+	page_number: int
+) -> tuple[list[str], int, float]:
 	"""Process a single page image: call API and crop components.
 	
 	Args:
 		image_path: Path to the PNG page image
 		semaphore: Semaphore to limit concurrent API calls
+		page_number: Page number for metrics tracking
 		
 	Returns:
-		List of paths to cropped component images
+		Tuple of (list of cropped image paths, page number, API latency in seconds)
 	"""
 	# Use semaphore to limit concurrent API calls
 	async with semaphore:
 		logger.info(f"Calling Nemotron-parse for image: {image_path}")
-		response_json = await call_nemotron_parse(image_path=image_path)
+		response_json, latency = await call_nemotron_parse(image_path=image_path)
 		logger.info(
 			f"Received Nemotron-parse response for image {image_path} "
-			f"(choices={len(response_json.get('choices', []))})"
+			f"(choices={len(response_json.get('choices', []))}) | latency={latency:.3f}s"
 		)
 	
 	# Crop images based on bounding boxes from the model response.
@@ -77,7 +84,7 @@ async def process_page_image(image_path: str, semaphore: asyncio.Semaphore) -> l
 		f"Generated {len(cropped_paths)} cropped components for image {image_path}"
 	)
 	
-	return cropped_paths
+	return cropped_paths, page_number, latency
 
 
 async def main() -> None:
@@ -97,18 +104,38 @@ async def main() -> None:
 		logger.error(f"No PDF files found in: {input_path}")
 		sys.exit(1)
 
+	# Cleanup directories from previous runs
+	logger.info("Cleaning up previous run directories...")
+	for dir_path in ["pdf_cropped_components", "pdf_images_dir"]:
+		if Path(dir_path).exists():
+			shutil.rmtree(dir_path)
+			logger.info(f"Removed directory: {dir_path}")
+
 	all_crops: list[str] = []
 	
 	# Create semaphore to limit concurrent API calls
 	semaphore = asyncio.Semaphore(MAX_CONCURRENT_API_CALLS)
 	logger.info(f"Using max concurrent API calls: {MAX_CONCURRENT_API_CALLS}")
+	
+	# Initialize metrics collector
+	metrics_collector = MetricsCollector()
 
 	for pdf_path in pdf_paths:
 		logger.info(f"Processing PDF: {pdf_path}")
+		
+		# Start tracking metrics for this PDF
+		metrics_collector.start_pdf(pdf_path.name)
+		
 		pdf_images = pdf_to_png(str(pdf_path), "pdf_images_dir/")
 		if pdf_images["success"]:
 			logger.info(
 				f"{pdf_images['message']} | pages={len(pdf_images['output_files'])}"
+			)
+			# Collect pdftocairo metrics
+			metrics_collector.add_pdftocairo_metric(
+				pdf_name=pdf_path.name,
+				total_pages=pdf_images["total_pages"],
+				conversion_time=pdf_images["conversion_time_seconds"]
 			)
 		else:
 			logger.error(f"Error converting PDF to images: {pdf_images['message']}")
@@ -125,25 +152,39 @@ async def main() -> None:
 		# Process all pages concurrently with semaphore controlling concurrency
 		logger.info(f"Processing {len(pdf_images['output_files'])} pages concurrently")
 		tasks = [
-			process_page_image(image_path, semaphore)
-			for image_path in pdf_images["output_files"]
+			process_page_image(image_path, semaphore, idx + 1)
+			for idx, image_path in enumerate(pdf_images["output_files"])
 		]
 		
 		# Gather all results
 		page_results = await asyncio.gather(*tasks, return_exceptions=True)
 		
-		# Collect successful crops and log errors
+		# Collect successful crops, metrics, and log errors
 		for idx, result in enumerate(page_results):
 			if isinstance(result, Exception):
 				logger.error(
 					f"Error processing page {pdf_images['output_files'][idx]}: {result}"
 				)
-			elif isinstance(result, list):
-				all_crops.extend(result)
+			elif isinstance(result, tuple):
+				cropped_paths, page_num, latency = result
+				all_crops.extend(cropped_paths)
+				metrics_collector.add_page_metric(
+					page_number=page_num,
+					image_path=pdf_images["output_files"][idx],
+					latency_seconds=latency
+				)
+		
+		# Finish metrics for this PDF
+		metrics_collector.finish_pdf()
 
 	logger.info(
 		f"Total cropped components across all PDFs and pages: {len(all_crops)}"
 	)
+	
+	# Save performance metrics to JSON file
+	metrics_file = metrics_collector.save_to_file("performance_metrics.json")
+	logger.info(f"Performance metrics saved to: {metrics_file}")
+	print(f"\n✓ Performance metrics saved to: {metrics_file}")
 
 	
 
