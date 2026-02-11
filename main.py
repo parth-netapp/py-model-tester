@@ -47,18 +47,19 @@ def get_pdf_paths(input_path: str) -> list[Path]:
 	raise FileNotFoundError(f"No PDF file(s) found at: {input_path}")
 
 
+
 async def process_page_image(
-	image_path: str, 
-	semaphore: asyncio.Semaphore, 
-	page_number: int
+	image_path: str,
+	semaphore: asyncio.Semaphore,
+	page_number: int,
 ) -> tuple[list[str], int, float]:
 	"""Process a single page image: call API and crop components.
-	
+
 	Args:
 		image_path: Path to the PNG page image
 		semaphore: Semaphore to limit concurrent API calls
 		page_number: Page number for metrics tracking
-		
+
 	Returns:
 		Tuple of (list of cropped image paths, page number, API latency in seconds)
 	"""
@@ -83,7 +84,7 @@ async def process_page_image(
 	logger.info(
 		f"Generated {len(cropped_paths)} cropped components for image {image_path}"
 	)
-	
+
 	return cropped_paths, page_number, latency
 
 
@@ -171,7 +172,7 @@ async def main() -> None:
 				metrics_collector.add_page_metric(
 					page_number=page_num,
 					image_path=pdf_images["output_files"][idx],
-					latency_seconds=latency
+					latency_seconds=latency,
 				)
 		
 		# Finish metrics for this PDF

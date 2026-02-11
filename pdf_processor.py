@@ -74,7 +74,7 @@ def get_pdf_page_count(pdf_path: Path) -> int:
 def pdf_to_png(
     pdf_path: Union[str, Path],
     output_dir: Union[str, Path],
-    dpi: int = 300,
+    dpi: int = 140,
 ) -> dict:
     """
     Convert a PDF file to PNG images using pdftocairo.
@@ -82,7 +82,7 @@ def pdf_to_png(
     Args:
         pdf_path: Path to the input PDF file
         output_dir: Directory where PNG images will be saved
-        dpi: Resolution for output images (default: 300)
+        dpi: Resolution for output images (default: 140)
     
     Returns:
         dict: Contains 'success' (bool), 'message' (str), and 'output_files' (list)
@@ -129,7 +129,7 @@ def pdf_to_png(
     output_prefix = images_dir / internal_prefix
 
     # Process the PDF in batches of 10 pages to limit memory usage.
-    batch_size = 10
+    batch_size = 15
     combined_stdout = ""
     combined_stderr = ""
 

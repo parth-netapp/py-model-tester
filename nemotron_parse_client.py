@@ -9,9 +9,9 @@ import aiohttp
 
 from logging_config import get_logger
 
-
-MODEL_URL = "http://0.0.0.0:8000/v1/chat/completions"
-MAX_CONCURRENT_API_CALLS = 5  # Maximum number of concurrent API requests
+MODEL_PORT = 31796
+MODEL_URL = f"http://0.0.0.0:{MODEL_PORT}/v1/chat/completions"
+MAX_CONCURRENT_API_CALLS = 32  # Maximum number of concurrent API requests
 
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ async def get_payload(model: str, image_path: str) -> dict:
             },
         ],
         # set max output tokens to a high value to ensure we get the full response from the model
-        "max_tokens": 4096,
+        "max_tokens": 1024,
     }
 
 
@@ -72,8 +72,6 @@ def _build_response_path(image_path: str) -> Path:
     """
     img_path = Path(image_path)
     return img_path.with_suffix(".json")
-
-
 async def call_nemotron_parse(
     image_path: str,
     model: str = "nvidia/nemotron-parse",

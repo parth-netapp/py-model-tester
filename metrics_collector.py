@@ -29,16 +29,29 @@ class MetricsCollector:
             "pdf_name": pdf_name,
             "total_pages": 0,
             "total_time_seconds": 0.0,
-            "per_page_metrics": []
+            "per_page_metrics": [],
         }
     
-    def add_page_metric(self, page_number: int, image_path: str, latency_seconds: float):
-        """Add a single page's API call metric."""
-        self.current_pdf["per_page_metrics"].append({
+    def add_page_metric(
+        self,
+        page_number: int,
+        image_path: str,
+        latency_seconds: float,
+    ):
+        """Add a single page's API call metric.
+
+        Args:
+            page_number: 1-based page index in the PDF
+            image_path: path to the rendered page image
+            latency_seconds: Nemotron API latency
+        """
+        page_entry: Dict[str, Any] = {
             "page": page_number,
             "image_path": image_path,
-            "latency_seconds": round(latency_seconds, 3)
-        })
+            "latency_seconds": round(latency_seconds, 3),
+        }
+
+        self.current_pdf["per_page_metrics"].append(page_entry)
         self.current_pdf["total_pages"] += 1
         self.current_pdf["total_time_seconds"] += latency_seconds
     
