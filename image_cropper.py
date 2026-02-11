@@ -189,7 +189,7 @@ def main():
     with open(args.input_json, "r", encoding="utf-8") as f:
         payload = json.load(f)
 
-    cropped_paths = crop_from_model_response(
+    cropped_paths, num_crops, total_size = crop_from_model_response(
         payload=payload,
         image_path=args.image,
         out_dir=args.out_dir,
@@ -200,7 +200,7 @@ def main():
     )
 
     logger.info(
-        f"image_cropper CLI finished | image={args.image} | crops={len(cropped_paths)} | out_dir={args.out_dir}",
+        f"image_cropper CLI finished | image={args.image} | crops={num_crops} | out_dir={args.out_dir}",
     )
 
     for p in cropped_paths:
@@ -217,7 +217,7 @@ def crop_from_model_response(
     include_classes: Iterable[str] | None = None,
     exclude_classes: Iterable[str] | None = None,
     prefix: str = "crop",
-) -> List[str]:
+) -> Tuple[List[str], int, int]:
     """Crop regions from a page image using a nemotron-parse-style payload.
 
     This function is suitable for importing and calling from other Python
@@ -235,7 +235,7 @@ def crop_from_model_response(
         prefix: Filename prefix for crops.
 
     Returns:
-        List of full file paths to the written crop images.
+        Tuple of (list of cropped image paths, number of crops, total size in bytes).
     """
 
     logger.info(
@@ -316,7 +316,10 @@ def crop_from_model_response(
         f"Completed cropping | image={image_path} | crops={len(cropped_paths)} | out_dir={page_out_dir}"
     )
 
-    return cropped_paths
+    # Calculate total size of cropped images
+    total_crops_size = sum(Path(cp).stat().st_size for cp in cropped_paths)
+
+    return cropped_paths, len(cropped_paths), total_crops_size
 
 if __name__ == "__main__":
     main()

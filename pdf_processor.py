@@ -74,7 +74,8 @@ def get_pdf_page_count(pdf_path: Path) -> int:
 def pdf_to_png(
     pdf_path: Union[str, Path],
     output_dir: Union[str, Path],
-    dpi: int = 140,
+    dpi: int = 120,
+    metrics_collector=None,
 ) -> dict:
     """
     Convert a PDF file to PNG images using pdftocairo.
@@ -185,6 +186,19 @@ def pdf_to_png(
         logger.info(
             f"Completed PDF to PNG conversion | path={pdf_path} | images={len(final_files)} | time={conversion_time:.3f}s"
         )
+
+        # Calculate metrics and log to metrics_collector if provided
+        if metrics_collector is not None:
+            total_size = sum(f.stat().st_size for f in final_files)
+            pdf_size = pdf_path.stat().st_size
+            
+            metrics_collector.add_pdftocairo_metric(
+                pdf_name=pdf_path.name,
+                total_pages=total_pages,
+                conversion_time=conversion_time,
+                total_size_bytes=total_size,
+                pdf_size_bytes=pdf_size
+            )
 
         return {
             "success": True,

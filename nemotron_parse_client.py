@@ -60,7 +60,8 @@ async def get_payload(model: str, image_path: str) -> dict:
             },
         ],
         # set max output tokens to a high value to ensure we get the full response from the model
-        "max_tokens": 1024,
+        # "max_tokens": 1024,
+        "logprobs": True,
     }
 
 
@@ -72,6 +73,7 @@ def _build_response_path(image_path: str) -> Path:
     """
     img_path = Path(image_path)
     return img_path.with_suffix(".json")
+
 async def call_nemotron_parse(
     image_path: str,
     model: str = "nvidia/nemotron-parse",
@@ -119,3 +121,20 @@ async def call_nemotron_parse(
     logger.info(f"Saved Nemotron-parse response JSON | path={out_path}")
 
     return response_json, latency
+
+
+# curl -X 'POST' \
+# 'http://0.0.0.0:31796/v1/chat/completions' \
+# -H 'accept: application/json' \
+# -H 'Content-Type: application/json' \
+# -d '{
+#     "model": "nvidia/nemotron-parse",
+#     "messages": [{"role":"user", "content":[
+#         {
+#           "type": "image_url",
+#           "image_url": {"url": "https://assets.ngc.nvidia.com/products/api-catalog/nemotron-parse/example_2.jpg"}
+#         }
+#     ]}],
+#     "max_tokens": 2048,
+#     "logprobs": true
+# }'

@@ -1,9 +1,10 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 
-_LOG_FILE_NAME = "py_model_tester.log"
+_LOG_FILE_BASE = "py_model_tester"
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
@@ -22,7 +23,10 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     log_dir = Path(__file__).resolve().parent
-    log_file = log_dir / _LOG_FILE_NAME
+    
+    # Create timestamped log file name
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"{_LOG_FILE_BASE}_{timestamp}.log"
 
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
