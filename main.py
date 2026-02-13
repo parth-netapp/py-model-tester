@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 from pdf_processor import pdf_to_png
-# from image_cropper import crop_from_model_response
+from image_cropper import crop_from_model_response
 from nemotron_parse_client import call_nemotron_parse, MAX_CONCURRENT_API_CALLS
 from logging_config import get_logger
 from metrics_collector import MetricsCollector
@@ -75,22 +75,16 @@ async def process_page_image(
 			f"Received Nemotron-parse response for image {image_path} "
 			f"(choices={len(response_json.get('choices', []))}) | latency={latency:.3f}s"
 		)
-	
-	# Crop images based on bounding boxes from the model response.
-	# image_cropper will place them under:
-	#   pdf_cropped_components/{pdf_name}/{pdf_name}_page{N}/
-	# cropped_paths = []
-	# num_crops = 0
-	# crops_size = 0
-	# cropped_paths, num_crops, crops_size = crop_from_model_response(
-	# 	payload=response_json,
-	# 	image_path=image_path,
-	# 	out_dir="pdf_cropped_components",
-	# 	prefix="cropped_image",
-	# )
-	# logger.info(
-	# 	f"Generated {num_crops} cropped components for image {image_path}"
-	# )
+
+		# Save response_json to file for later cropping in Phase 3
+		# Create subdirectory structure: model_responses/{pdf_name}/
+		response_dir = Path("model_responses") / pdf_name
+		response_dir.mkdir(parents=True, exist_ok=True)
+		image_path_obj = Path(image_path)
+		response_file = response_dir / f"{image_path_obj.stem}.json"
+		with open(response_file, "w", encoding="utf-8") as f:
+			json.dump(response_json, f, indent=2)
+		logger.debug(f"Saved model response to: {response_file}")
 
 	end_time = time.time()
 	return [], page_number, latency, pdf_name, start_time, end_time
@@ -115,7 +109,7 @@ async def main() -> None:
 
 	# Cleanup directories from previous runs
 	logger.info("Cleaning up previous run directories...")
-	for dir_path in ["pdf_cropped_components", "pdf_images_dir"]:
+	for dir_path in ["pdf_cropped_components", "pdf_images_dir", "model_responses"]:
 		if Path(dir_path).exists():
 			shutil.rmtree(dir_path)
 			logger.info(f"Removed directory: {dir_path}")
@@ -145,28 +139,28 @@ async def main() -> None:
 			continue
 	
 	logger.info("Phase 1 complete: All PDFs converted to images")
-	
+
 	# PHASE 2: Process all images with model API
 	logger.info("=" * 80)
 	logger.info("PHASE 2: Processing all images with Nemotron-parse API")
 	logger.info("=" * 80)
-	
+
 	# Create semaphore to limit concurrent API calls
 	semaphore = asyncio.Semaphore(MAX_CONCURRENT_API_CALLS)
 	logger.info(f"Using max concurrent API calls: {MAX_CONCURRENT_API_CALLS}")
-	
+
 	# Discover all PNG images by walking the pdf_images_dir directory
 	images_dir = Path("pdf_images_dir")
 	if not images_dir.exists():
 		logger.error("No pdf_images_dir found - no images to process")
 		sys.exit(1)
-	
+
 	# Collect all PNG files with their metadata (pdf_name, page_number, image_path)
 	all_page_info = []
 	for png_file in sorted(images_dir.rglob("*.png")):
 		# Extract pdf_name from parent directory
 		pdf_name = png_file.parent.name
-		
+
 		# Extract page number from filename (e.g., "doc_page-05.png" -> 5)
 		# Pattern: {pdf_name}_page-{N}.png
 		filename = png_file.stem  # e.g., "doc_page-05"
@@ -177,23 +171,23 @@ async def main() -> None:
 		except (IndexError, ValueError) as e:
 			logger.warning(f"Could not extract page number from {png_file}: {e}")
 			continue
-	
+
 	logger.info(f"Discovered {len(all_page_info)} page images to process")
-	
+
 	# Process all pages concurrently with semaphore controlling concurrency
 	tasks = [
 		process_page_image(image_path, semaphore, page_num, pdf_name)
 		for pdf_name, page_num, image_path in all_page_info
 	]
-	
+
 	# Gather all results
 	page_results = await asyncio.gather(*tasks, return_exceptions=True)
-	
+
 	# Organize results by PDF
 	pdf_to_results = {}
 	all_start_times = []
 	all_end_times = []
-	
+
 	for idx, result in enumerate(page_results):
 		if isinstance(result, tuple):
 			_, page_num, latency, pdf_name, start_time, end_time = result
@@ -204,11 +198,11 @@ async def main() -> None:
 			pdf_to_results[pdf_name].append((page_num, latency, start_time, end_time))
 			all_start_times.append(start_time)
 			all_end_times.append(end_time)
-	
+
 	# Calculate overall Phase 2 wall-clock time across ALL PDFs
 	# Since all pages run concurrently, this is earliest start to latest end
 	overall_phase2_wall_clock = max(all_end_times) - min(all_start_times) if all_start_times else 0.0
-	
+
 	# Now process metrics sequentially by PDF (not concurrently)
 	for pdf_name, results in pdf_to_results.items():
 		# Calculate actual wall-clock time: earliest start to latest end
@@ -220,26 +214,74 @@ async def main() -> None:
 		else:
 			wall_clock_duration = 0.0
 			total_api_time = 0.0
-		
+
 		metrics_collector.start_pdf(pdf_name, wall_clock_time=wall_clock_duration, total_api_time=total_api_time)
-		
+
 		for page_num, latency, _, _ in results:
 			metrics_collector.add_page_metric(
 				page_number=page_num,
 				latency_seconds=latency,
 			)
-		
+
 		metrics_collector.finish_pdf()
-	
+
 	# Set overall Phase 2 wall-clock time
 	metrics_collector.set_overall_phase2_time(overall_phase2_wall_clock)
-	
+
 	# Save performance metrics to JSON file
 	metrics_file = metrics_collector.save_to_file("performance_metrics.json")
 	logger.info(f"Performance metrics saved to: {metrics_file}")
 	print(f"\n✓ Performance metrics saved to: {metrics_file}")
 
+	# PHASE 3: Crop images based on saved JSON responses
+	logger.info("=" * 80)
+	logger.info("PHASE 3: Cropping images based on model responses")
+	logger.info("=" * 80)
+
+	response_dir = Path("model_responses")
+	if not response_dir.exists() or not list(response_dir.rglob("*.json")):
+		logger.warning("No model response JSON files found - skipping cropping phase")
+	else:
+		# Process each JSON file and crop corresponding image
+		# JSON files are organized as: model_responses/{pdf_name}/{pdf_name}_page-{N}.json
+		for json_file in sorted(response_dir.rglob("*.json")):
+			# Match JSON file to corresponding image
+			# JSON file pattern: model_responses/{pdf_name}/{pdf_name}_page-{N}.json
+			# Image file pattern: pdf_images_dir/{pdf_name}/{pdf_name}_page-{N}.png
+
+			# Find matching image file
+			matching_images = list(images_dir.rglob(f"{json_file.stem}.png"))
+
+			if not matching_images:
+				logger.warning(f"No matching image found for {json_file.name}")
+				continue
+
+			image_path = str(matching_images[0])
+
+			# Load response JSON
+			with open(json_file, "r", encoding="utf-8") as f:
+				response_json = json.load(f)
+
+			logger.info(f"Cropping image: {image_path} using response: {json_file.name}")
+
+			# Call image_cropper to crop regions
+			try:
+				cropped_paths, num_crops, crops_size = crop_from_model_response(
+					payload=response_json,
+					image_path=image_path,
+					out_dir="pdf_cropped_components",
+					prefix="cropped_image",
+				)
+				logger.info(
+					f"Generated {num_crops} cropped components for {json_file.name} "
+					f"(total size: {crops_size / 1024:.2f} KB)"
+				)
+			except Exception as e:
+				logger.error(f"Error cropping {image_path}: {e}", exc_info=True)
+				continue
 	
+	logger.info("Phase 3 complete: All images cropped")
+	print("\n✓ Phase 3 complete: Image cropping finished")
 
 
 if __name__ == "__main__":

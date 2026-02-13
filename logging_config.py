@@ -22,8 +22,10 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
 
     logger.setLevel(logging.INFO)
 
-    log_dir = Path(__file__).resolve().parent
-    
+    # Place logs in a 'log' subdirectory next to this module
+    log_dir = Path(__file__).resolve().parent / "log"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
     # Create timestamped log file name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"{_LOG_FILE_BASE}_{timestamp}.log"

@@ -1,15 +1,16 @@
 import asyncio
 import base64
 import json
+import math
 import time
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Iterable, Tuple
 
 import aiohttp
 
 from logging_config import get_logger
 
-MODEL_PORT = 31796
+MODEL_PORT = 30384
 MODEL_URL = f"http://0.0.0.0:{MODEL_PORT}/v1/chat/completions"
 MAX_CONCURRENT_API_CALLS = 32  # Maximum number of concurrent API requests
 
@@ -61,7 +62,7 @@ async def get_payload(model: str, image_path: str) -> dict:
         ],
         # set max output tokens to a high value to ensure we get the full response from the model
         # "max_tokens": 1024,
-        "logprobs": True,
+        # "logprobs": True,
     }
 
 

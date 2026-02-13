@@ -260,7 +260,7 @@ def crop_from_model_response(
     page_label = image_path_obj.stem       # e.g., "mydoc_page1"
 
     page_out_dir = Path(out_dir) / pdf_name / page_label
-    page_out_dir.mkdir(parents=True, exist_ok=True)
+    # Don't create directory yet - only create when we have crops to save
 
     img = Image.open(image_path).convert("RGB")
     W, H = img.size
@@ -277,6 +277,7 @@ def crop_from_model_response(
 
     cropped_paths: List[str] = []
     count = 0
+    dir_created = False
 
     for el in elements:
         bbox = el.get("bbox") or {}
@@ -295,6 +296,11 @@ def crop_from_model_response(
 
         crop = img.crop((x1, y1, x2, y2))
         count += 1
+
+        # Create output directory only when we have the first valid crop
+        if not dir_created:
+            page_out_dir.mkdir(parents=True, exist_ok=True)
+            dir_created = True
 
         # Shorten text snippet for filename if present (optional, safe chars only)
         safe_txt = ""
